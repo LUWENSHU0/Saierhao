@@ -1,46 +1,37 @@
-# --------------------------------------------------------------------------
-# Import libraries
-# --------------------------------------------------------------------------
 import streamlit as st
 import pandas as pd
-from openai import OpenAI # Using OpenAI client for DeepSeek (compatible API)
+from openai import OpenAI
 import matplotlib.pyplot as plt
 import os
 from datetime import datetime, timedelta
-import matplotlib # Still needed for plots, even without specific font config
-import random # For generating varied mock data
-import numpy as np # Needed for replacing placeholders
+import matplotlib #needed for plots
+import random #mock data
+import numpy as np 
 
-# --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
+#Page Configuration
 st.set_page_config(layout="wide")
 
-# --- Constants ---
-DATA_PATH = "./" # Assume CSVs are in the same directory, adjust if needed
+#Constants 
+DATA_PATH = "./"
 ITEMS_FILE = os.path.join(DATA_PATH, "items.csv")
 KEYWORDS_FILE = os.path.join(DATA_PATH, "keywords.csv")
 MERCHANTS_FILE = os.path.join(DATA_PATH, "merchant.csv")
 TRANSACTIONS_FILE = os.path.join(DATA_PATH, "transaction_data.csv")
-# Check for typo in your actual filename: tracsaction_items.csv or transaction_items.csv?
 TRANSACTION_ITEMS_FILE = os.path.join(DATA_PATH, "transaction_items.csv")
 ANALYSIS_PERIOD_DAYS = 7 # Analyze the last 7 days
 
-# --- Load Data ---
-@st.cache_data # Cache data loading for performance
+#Load Data
+@st.cache_data #load cache data(avoid repeat loading)
 def load_data():
-    """Loads all necessary CSV files into pandas DataFrames."""
+    #Loads all necessary CSV files into pandas DataFrames
     try:
         items_df = pd.read_csv(ITEMS_FILE)
         keywords_df = pd.read_csv(KEYWORDS_FILE)
-
         merchants_df = pd.read_csv(MERCHANTS_FILE)
-        # --- DEBUG LINE: Print columns to identify the correct join date column ---
-        print("DEBUG: Columns loaded from merchant.csv:", merchants_df.columns.tolist())
-        # --- REMOVE OR COMMENT OUT THIS LINE AFTER DEBUGGING ---
-
         transactions_df = pd.read_csv(TRANSACTIONS_FILE, low_memory=False)
         transaction_items_df = pd.read_csv(TRANSACTION_ITEMS_FILE)
 
-        # --- Date Parsing ---
+        #Date Parsing
         date_cols = ['order_time', 'driver_arrival_time', 'driver_pickup_time', 'delivery_time']
         placeholder_values = ['################', '#', 'nan', '']
 
@@ -48,7 +39,7 @@ def load_data():
             if col in transactions_df.columns:
                  transactions_df[col] = transactions_df[col].astype(str)
                  transactions_df[col].replace(placeholder_values, np.nan, inplace=True)
-                 transactions_df[col] = pd.to_datetime(transactions_df[col], dayfirst=False, errors='coerce') # Assuming MM/DD format
+                 transactions_df[col] = pd.to_datetime(transactions_df[col], dayfirst=False, errors='coerce')
             else:
                  if col == 'order_time':
                      st.error(f"Critical column '{col}' not found in {TRANSACTIONS_FILE}. Cannot proceed.")
@@ -57,9 +48,8 @@ def load_data():
                      st.warning(f"Date column '{col}' not found in {TRANSACTIONS_FILE}. Related calculations might be affected.")
 
         # Parse merchant join date
-        # !!! ACTION REQUIRED: Verify the actual column name from the DEBUG print output !!!
-        merchant_join_date_col = 'join_date'        # <--- CONFIRM/CHANGE THIS based on DEBUG output
-        merchant_join_date_format = '%d%m%Y'        # <--- VERIFY/CHANGE THIS format string
+        merchant_join_date_col = 'join_date'
+        merchant_join_date_format = '%d%m%Y'
         try:
             if merchant_join_date_col in merchants_df.columns:
                  merchants_df[merchant_join_date_col] = pd.to_datetime(merchants_df[merchant_join_date_col], format=merchant_join_date_format, errors='coerce')
@@ -86,12 +76,12 @@ def load_data():
             st.stop()
 
 
-        # --- Validation and Merging ---
+        #Validation and Merging
         if items_df.empty or merchants_df.empty or transactions_df.empty or transaction_items_df.empty:
              st.error("One or more essential data files are empty or failed to load/parse. Cannot proceed.")
              st.stop()
 
-        # Merge merchant names
+        #Merge merchant names
         if 'merchant_id' in transactions_df.columns and 'merchant_id' in merchants_df.columns:
              if 'merchant_name' not in merchants_df.columns: merchants_df['merchant_name'] = 'Unknown Merchant Name'
              merchants_df['merchant_name'].fillna('Unknown Merchant Name', inplace=True)
@@ -110,11 +100,11 @@ def load_data():
         st.error(f"An unexpected error occurred during data loading or initial processing: {e}")
         st.stop()
 
-# --- Load data globally ---
+#Load data
 items_df, keywords_df, merchants_df, transactions_df, transaction_items_df = load_data()
 
 
-# --- API Client Setup ---
+#API Setup
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 if not DEEPSEEK_API_KEY:
     st.error("Error: DEEPSEEK_API_KEY environment variable not set.")
@@ -126,9 +116,9 @@ except Exception as e:
     st.stop()
 
 
-# --- Data Processing Function ---
+#Data Processing Function
 def process_merchant_data(selected_merchant_id, transactions_df, transaction_items_df, items_df, period_days=7):
-    """Analyzes data for a specific merchant over a given period."""
+    #Analyzes data for a specific merchant over a given period
     required_tx_cols = ['merchant_id', 'order_time', 'order_value', 'order_id']
     if not all(col in transactions_df.columns for col in required_tx_cols):
         return {"error": f"Missing required columns in transaction data ({required_tx_cols})."}
@@ -180,7 +170,6 @@ def process_merchant_data(selected_merchant_id, transactions_df, transaction_ite
     pickup_col = 'driver_pickup_time'
     order_t_col = 'order_time'
     if pickup_col in merchant_tx.columns and order_t_col in merchant_tx.columns and pd.api.types.is_datetime64_any_dtype(merchant_tx[pickup_col]) and pd.api.types.is_datetime64_any_dtype(merchant_tx[order_t_col]):
-         # Ensure times are timezone-naive or consistent before subtraction
          pickup_time_naive = merchant_tx[pickup_col].dt.tz_localize(None) if merchant_tx[pickup_col].dt.tz is not None else merchant_tx[pickup_col]
          order_time_naive = merchant_tx[order_t_col].dt.tz_localize(None) if merchant_tx[order_t_col].dt.tz is not None else merchant_tx[order_t_col]
          merchant_tx['prep_time_minutes'] = (pickup_time_naive - order_time_naive).dt.total_seconds() / 60
@@ -198,16 +187,15 @@ def process_merchant_data(selected_merchant_id, transactions_df, transaction_ite
     return summary
 
 
-# --- Keyword Insights Function ---
+#Keyword Insights Function
 def get_keyword_insights(keywords_df):
-    """Provides general keyword insights."""
+    #Provides general keyword insights.
     required_keyword_cols = ['keyword', 'view', 'order']
     if keywords_df.empty or not all(col in keywords_df.columns for col in required_keyword_cols):
         return {"top_market_keywords": "Keyword data unavailable or missing required columns."}
     try:
         keywords_df['order'] = pd.to_numeric(keywords_df['order'], errors='coerce')
-        keywords_df.dropna(subset=['order'], inplace=True) # Remove rows where order count is not numeric
-        # Ensure view is also numeric if needed, or handle potential errors
+        keywords_df.dropna(subset=['order'], inplace=True)
         keywords_df['view'] = pd.to_numeric(keywords_df['view'], errors='coerce')
 
         top_keywords = keywords_df.nlargest(5, 'order')[required_keyword_cols].to_dict('records')
@@ -216,9 +204,9 @@ def get_keyword_insights(keywords_df):
          return {"top_market_keywords": f"Error processing keywords: {e}"}
 
 
-# --- AI Insight Generation Function ---
+#AI Insight Generation Function
 def get_proactive_insights_from_data(merchant_profile, data_summary, keyword_insights=None):
-    """Generates insights using the processed data summary and optional keywords."""
+    #Generates insights using the processed data summary and optional keywords.
     if "error" in data_summary:
          return f"Could not generate insights due to a data processing error: {data_summary['error']}"
     prep_time_str = f"{data_summary.get('avg_prep_time_minutes'):.1f}" if isinstance(data_summary.get('avg_prep_time_minutes'), float) else 'N/A'
@@ -232,16 +220,14 @@ def get_proactive_insights_from_data(merchant_profile, data_summary, keyword_ins
 *   Avg. Prep Time: {prep_time_str} minutes
 *   Weekly Sales Trend (Week: Amount): {data_summary.get('weekly_sales_trend', {})}
 """
-    # Safely check keyword insights structure before adding
+    
     if keyword_insights and isinstance(keyword_insights.get("top_market_keywords"), list):
          prompt_data_section += f"\n*   Top Market Keywords (by orders): {keyword_insights['top_market_keywords']}"
     elif keyword_insights and isinstance(keyword_insights.get("top_market_keywords"), str): # Handle error string
          prompt_data_section += f"\n*   Top Market Keywords: {keyword_insights['top_market_keywords']}"
 
 
-    # !!! ACTION REQUIRED: Ensure 'merchant_join_date_col' matches the actual key in merchant_profile dict !!!
-    # If you didn't rename the column when creating the profile dict, use the original name variable
-    join_date_col_in_profile = 'join_date' # <--- Should match the key used when creating merchant_profile dict
+    join_date_col_in_profile = 'join_date'
 
     system_prompt = f"""
 You are a top Grab platform AI business analyst and consultant.
@@ -264,14 +250,14 @@ Generate 1-2 most important insights and recommendations:
     except Exception as e:
         return f"Error generating initial insights: {e}"
 
-# --------------------------------------------------------------------------
-# Streamlit App UI Layout
-# --------------------------------------------------------------------------
 
-st.title("🚀 Grab MEX AI Assistant (Real Data Demo)")
+#Streamlit App UI Layout
+
+
+st.title("🚀 Grab MEX AI Assistant")
 st.caption("Using data from CSV files for Task 2")
 
-# --- Initialize session state ---
+#Initialize session state
 if 'selected_merchant_id' not in st.session_state:
     st.session_state.selected_merchant_id = merchants_df['merchant_id'].iloc[0] if not merchants_df.empty else None
 if 'current_merchant_id' not in st.session_state:
@@ -286,7 +272,7 @@ if 'search_term' not in st.session_state:
     st.session_state.search_term = ""
 
 
-# --- Merchant Selection with Filtering ---
+#Merchant Selection with Filtering
 merchant_dict = pd.Series(merchants_df.merchant_name.values, index=merchants_df.merchant_id).fillna('Unknown Name').to_dict() if not merchants_df.empty else {}
 all_merchant_ids = list(merchant_dict.keys())
 
@@ -327,31 +313,26 @@ selected_merchant_id = st.selectbox(
 )
 
 
-# --- Process Data and Update State on Selection Change ---
+#Process Data and Update State on Selection Change
 if selected_merchant_id and (st.session_state.current_merchant_id != selected_merchant_id or st.session_state.data_summary is None):
     st.session_state.data_summary = process_merchant_data(
         selected_merchant_id, transactions_df, transaction_items_df, items_df, period_days=ANALYSIS_PERIOD_DAYS
     )
-    # Get the full profile details using the CORRECT join date column name variable
-    merchant_join_date_col = 'join_date' # Make sure this matches the name used in load_data
+    merchant_join_date_col = 'join_date'
     profile_series = merchants_df[merchants_df['merchant_id'] == selected_merchant_id].iloc[0] if selected_merchant_id in merchants_df['merchant_id'].values else None
-    # Create profile dict, ensuring the join date key matches the column name variable used
     st.session_state.merchant_profile = profile_series.to_dict() if profile_series is not None else {"merchant_name": "Unknown Merchant", "merchant_id": selected_merchant_id, merchant_join_date_col: pd.NaT}
 
     st.session_state.current_merchant_id = selected_merchant_id
     st.session_state.messages = []
 
 
-# --- Add Initial Insight Message if Needed ---
+#Add Initial Insight Message
 if selected_merchant_id and not st.session_state.messages:
     if st.session_state.data_summary and st.session_state.merchant_profile:
         if "error" not in st.session_state.data_summary:
-            # Optional: Generate keyword insights
-            # keyword_info = get_keyword_insights(keywords_df)
             initial_insight = get_proactive_insights_from_data(
                 st.session_state.merchant_profile,
                 st.session_state.data_summary
-                # keyword_insights=keyword_info # Pass if using
             )
             st.session_state.messages.append({
                 "role": "assistant",
@@ -364,11 +345,11 @@ if selected_merchant_id and not st.session_state.messages:
             })
 
 
-# --- Page Layout and Display ---
+#Page Layout and Display
 if st.session_state.data_summary and st.session_state.merchant_profile:
     left_column, right_column = st.columns([1, 2])
 
-    # --- Sidebar (Left Column) ---
+    #Sidebar (Left Column)
     with left_column:
         st.header("📊 Business Overview")
         profile = st.session_state.merchant_profile
@@ -378,11 +359,10 @@ if st.session_state.data_summary and st.session_state.merchant_profile:
              st.error(summary["error"])
         else:
             st.subheader(f"Merchant: {profile.get('merchant_name', selected_merchant_id)}")
-            # !!! ACTION REQUIRED: Use the correct key to get join date from profile dict !!!
-            join_date_col_in_profile = 'join_date' # Should match the column name used in load_data
+            join_date_col_in_profile = 'join_date'
             join_date_val = profile.get(join_date_col_in_profile)
             join_date_str = join_date_val.strftime('%Y-%m-%d') if pd.notnull(join_date_val) else 'N/A'
-            st.markdown(f"**Joined:** {join_date_str} | **City ID:** {profile.get('city_id', 'N/A')}") # Assumes city_id column exists
+            st.markdown(f"**Joined:** {join_date_str} | **City ID:** {profile.get('city_id', 'N/A')}")
             st.markdown(f"**Report Period:** {summary.get('report_period', 'N/A')}")
 
             st.metric("Total Sales", f"RM {summary.get('total_sales', 0):.2f}")
@@ -420,7 +400,7 @@ if st.session_state.data_summary and st.session_state.merchant_profile:
             st.caption("Data processed from provided CSV files.")
 
 
-    # --- Chat Interface (Right Column) ---
+    #Chat Interface (Right Column)
     with right_column:
         st.header("💬 Chat with AI Assistant")
         for message in st.session_state.get("messages", []):
